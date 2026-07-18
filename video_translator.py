@@ -283,11 +283,15 @@ def main():
     finally:
         # 清理临时文件
         if success:
-            print("[*] 正在清理临时文件和进度缓存...")
-            for temp_file in [audio_file, transcription_cache, translation_cache]:
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-                    print(f"    - 已清理: {temp_file}")
+            print("\n[*] 正在清理临时音频文件...")
+            if os.path.exists(audio_file):
+                os.remove(audio_file)
+                print(f"    - 已清理: {audio_file}")
+                
+            print("\n[💡] 提示: 中间状态文件已被默认保留，以备将来更换大模型重新翻译或更改字幕格式时瞬间恢复进度：")
+            print(f"    - 语音识别缓存: {transcription_cache}")
+            print(f"    - 翻译结果缓存: {translation_cache}")
+            print("    (如果您确认不再需要，可自行手动删除以释放少量磁盘空间)")
         else:
             print("\n[!] 提示: 由于执行未完全结束，临时音频和进度缓存已被保留。下次重新运行将自动恢复进度。")
 
