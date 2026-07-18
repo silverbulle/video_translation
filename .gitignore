@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 临时文件
+temp_audio.wav
+*.mp4
+*.mkv
+*.avi
+*.srt
+
+# 环境
+.venv/
+venv/
+env/
+.env
