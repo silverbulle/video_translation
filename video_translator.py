@@ -2,6 +2,8 @@ import os
 import re
 import json
 import requests
+import site
+from tqdm import tqdm
 from faster_whisper import WhisperModel
 from moviepy import VideoFileClip
 
@@ -11,6 +13,21 @@ from moviepy import VideoFileClip
 OLLAMA_API_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "qwen2.5:7b"  # 推荐使用 qwen 系列或 llama3，需先在本地 ollama run qwen2.5:7b
 WHISPER_MODEL_SIZE = "small"   # base, small, medium, large-v3
+
+# [Windows 专属] 尝试自动加载通过 pip 安装的 CUDA DLL 路径
+if os.name == 'nt':
+    try:
+        # 获取 site-packages 目录，如果是 user 安装则可能在 getusersitepackages
+        site_packages = site.getsitepackages() + [site.getusersitepackages()]
+        for sp in site_packages:
+            cublas_bin = os.path.join(sp, "nvidia", "cublas", "bin")
+            cudnn_bin = os.path.join(sp, "nvidia", "cudnn", "bin")
+            if os.path.exists(cublas_bin):
+                os.environ["PATH"] = cublas_bin + os.pathsep + os.environ["PATH"]
+            if os.path.exists(cudnn_bin):
+                os.environ["PATH"] = cudnn_bin + os.pathsep + os.environ["PATH"]
+    except Exception:
+        pass
 
 def extract_audio(video_path, audio_path):
     """1. 从视频中提取音频"""
@@ -43,14 +60,20 @@ def transcribe_audio(audio_path):
             raise e
             
     print(f"[+] 检测到语言: {info.language} (概率: {info.language_probability:.2f})")
+    print(f"[*] 音频总长度: {info.duration:.2f} 秒")
     
     results = []
-    for segment in segments:
-        results.append({
-            "start": segment.start,
-            "end": segment.end,
-            "text": segment.text.strip()
-        })
+    with tqdm(total=round(info.duration, 2), desc="语音识别进度", unit="秒") as pbar:
+        last_end = 0.0
+        for segment in segments:
+            results.append({
+                "start": segment.start,
+                "end": segment.end,
+                "text": segment.text.strip()
+            })
+            pbar.update(round(segment.end - last_end, 2))
+            last_end = segment.end
+            
     return results
 
 def translate_batch_ollama(texts):
@@ -116,17 +139,20 @@ def translate_all_segments(segments, batch_size=10):
     print(f"[*] 准备翻译，共计 {len(segments)} 条字幕，每批次翻译 {batch_size} 条...")
     translated_segments = []
     
-    for i in range(0, len(segments), batch_size):
-        batch = segments[i:i+batch_size]
-        texts_to_translate = [item["text"] for item in batch]
-        
-        print(f"    - 正在翻译第 {i+1} 到 {min(i+batch_size, len(segments))} 条...")
-        translated_texts = translate_batch_ollama(texts_to_translate)
-        
-        for j, item in enumerate(batch):
-            new_item = item.copy()
-            new_item["zh_text"] = translated_texts[j]
-            translated_segments.append(new_item)
+    total_batches = (len(segments) + batch_size - 1) // batch_size
+    with tqdm(total=total_batches, desc="翻译进度", unit="批次") as pbar:
+        for i in range(0, len(segments), batch_size):
+            batch = segments[i:i+batch_size]
+            texts_to_translate = [item["text"] for item in batch]
+            
+            translated_texts = translate_batch_ollama(texts_to_translate)
+            
+            for j, item in enumerate(batch):
+                new_item = item.copy()
+                new_item["zh_text"] = translated_texts[j]
+                translated_segments.append(new_item)
+                
+            pbar.update(1)
             
     return translated_segments
 

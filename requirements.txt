@@ -1,3 +1,4 @@
 faster-whisper
 moviepy
 requests
+tqdm
