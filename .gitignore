@@ -14,3 +14,7 @@ temp_audio.wav
 venv/
 env/
 .env
+
+# 断点续传缓存文件
+*.transcription.json
+*.translation.json
