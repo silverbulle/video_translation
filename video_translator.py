@@ -24,8 +24,12 @@ if os.name == 'nt':
             cudnn_bin = os.path.join(sp, "nvidia", "cudnn", "bin")
             if os.path.exists(cublas_bin):
                 os.environ["PATH"] = cublas_bin + os.pathsep + os.environ["PATH"]
+                if hasattr(os, 'add_dll_directory'):
+                    os.add_dll_directory(cublas_bin)
             if os.path.exists(cudnn_bin):
                 os.environ["PATH"] = cudnn_bin + os.pathsep + os.environ["PATH"]
+                if hasattr(os, 'add_dll_directory'):
+                    os.add_dll_directory(cudnn_bin)
     except Exception:
         pass
 
@@ -46,6 +50,9 @@ def extract_audio(video_path, audio_path):
 
 def transcribe_audio(audio_path, cache_file):
     """2. 使用 faster-whisper 进行语音识别提取带有时间戳的文本"""
+    print("\n" + "="*50)
+    print("=== 阶段 1/2: 语音识别提取 (Transcription) ===")
+    print("="*50)
     if os.path.exists(cache_file):
         print(f"[*] 检测到识别缓存 {cache_file}，直接加载已识别时间戳...")
         with open(cache_file, "r", encoding="utf-8") as f:
@@ -150,6 +157,9 @@ def translate_batch_ollama(texts):
 
 def translate_all_segments(segments, cache_file, batch_size=10):
     """3. 批量循环翻译所有片段 (带断点续传)"""
+    print("\n" + "="*50)
+    print("=== 阶段 2/2: 大模型本地翻译 (Translation) ===")
+    print("="*50)
     translated_segments = []
     if os.path.exists(cache_file):
         with open(cache_file, "r", encoding="utf-8") as f:
@@ -213,15 +223,17 @@ def main():
     parser = argparse.ArgumentParser(description="本地视频语音翻译程序 (基于 Faster-Whisper 和 Ollama)")
     parser.add_argument("video", help="输入的视频文件路径 (如: video.mp4)")
     parser.add_argument("--audio", default="temp_audio.wav", help="中间音频文件存储路径")
-    parser.add_argument("--output", default="output.srt", help="输出的 srt 字幕路径")
+    parser.add_argument("--output", default=None, help="输出的 srt 字幕路径 (默认与视频同名并存放在视频同级目录)")
     args = parser.parse_args()
 
     video_file = args.video
     audio_file = args.audio
-    srt_file = args.output
     
-    # 派生缓存文件名
+    # 派生同名文件路径
     base_name = os.path.splitext(video_file)[0]
+    srt_file = args.output if args.output else f"{base_name}.srt"
+    
+    # 派生缓存文件名 (放在视频同目录下)
     transcription_cache = f"{base_name}.transcription.json"
     translation_cache = f"{base_name}.translation.json"
 
