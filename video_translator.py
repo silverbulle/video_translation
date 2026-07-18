@@ -12,7 +12,7 @@ from moviepy import VideoFileClip
 # ==========================================
 OLLAMA_API_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "qwen2.5:7b"  # 推荐使用 qwen 系列或 llama3，需先在本地 ollama run qwen2.5:7b
-WHISPER_MODEL_SIZE = "small"   # base, small, medium, large-v3
+WHISPER_MODEL_SIZE = "large-v3"   # base, small, medium, large-v3
 
 # [Windows 专属] 尝试自动加载通过 pip 安装的 CUDA DLL 路径
 if os.name == 'nt':
@@ -222,15 +222,15 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="本地视频语音翻译程序 (基于 Faster-Whisper 和 Ollama)")
     parser.add_argument("video", help="输入的视频文件路径 (如: video.mp4)")
-    parser.add_argument("--audio", default="temp_audio.wav", help="中间音频文件存储路径")
+    parser.add_argument("--audio", default=None, help="中间音频文件存储路径 (默认存放在视频同级目录)")
     parser.add_argument("--output", default=None, help="输出的 srt 字幕路径 (默认与视频同名并存放在视频同级目录)")
     args = parser.parse_args()
 
     video_file = args.video
-    audio_file = args.audio
     
     # 派生同名文件路径
     base_name = os.path.splitext(video_file)[0]
+    audio_file = args.audio if args.audio else f"{base_name}.wav"
     srt_file = args.output if args.output else f"{base_name}.srt"
     
     # 派生缓存文件名 (放在视频同目录下)

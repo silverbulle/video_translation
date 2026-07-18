@@ -3,7 +3,7 @@ __pycache__/
 *$py.class
 
 # 临时文件
-temp_audio.wav
+*.wav
 *.mp4
 *.mkv
 *.avi
