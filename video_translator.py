@@ -31,6 +31,10 @@ if os.name == 'nt':
 
 def extract_audio(video_path, audio_path):
     """1. 从视频中提取音频"""
+    if os.path.exists(audio_path):
+        print(f"[*] 检测到已存在的音频文件 {audio_path}，跳过提取。")
+        return
+        
     print(f"[*] 正在从 {video_path} 提取音频...")
     try:
         video = VideoFileClip(video_path)
@@ -40,8 +44,13 @@ def extract_audio(video_path, audio_path):
         print(f"[-] 提取音频失败: {e}")
         raise e
 
-def transcribe_audio(audio_path):
+def transcribe_audio(audio_path, cache_file):
     """2. 使用 faster-whisper 进行语音识别提取带有时间戳的文本"""
+    if os.path.exists(cache_file):
+        print(f"[*] 检测到识别缓存 {cache_file}，直接加载已识别时间戳...")
+        with open(cache_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+            
     print(f"[*] 正在加载 faster-whisper 模型 ({WHISPER_MODEL_SIZE})...")
     
     try:
@@ -73,6 +82,11 @@ def transcribe_audio(audio_path):
             })
             pbar.update(round(segment.end - last_end, 2))
             last_end = segment.end
+            
+    # 保存缓存
+    with open(cache_file, "w", encoding="utf-8") as f:
+        json.dump(results, f, ensure_ascii=False, indent=2)
+    print(f"[*] 识别结果已缓存至 {cache_file}")
             
     return results
 
@@ -134,15 +148,25 @@ def translate_batch_ollama(texts):
         print("请确认 Ollama 已经启动，并且安装了相应的模型！")
         return ["[翻译失败]"] * len(texts)
 
-def translate_all_segments(segments, batch_size=10):
-    """3. 批量循环翻译所有片段"""
-    print(f"[*] 准备翻译，共计 {len(segments)} 条字幕，每批次翻译 {batch_size} 条...")
+def translate_all_segments(segments, cache_file, batch_size=10):
+    """3. 批量循环翻译所有片段 (带断点续传)"""
     translated_segments = []
+    if os.path.exists(cache_file):
+        with open(cache_file, "r", encoding="utf-8") as f:
+            translated_segments = json.load(f)
+        print(f"[*] 检测到翻译缓存 {cache_file}，已恢复 {len(translated_segments)} 条翻译进度。")
+
+    remaining_segments = segments[len(translated_segments):]
+    if not remaining_segments:
+        print("[*] 所有片段均已翻译完毕！")
+        return translated_segments
+        
+    print(f"[*] 准备翻译，剩余 {len(remaining_segments)} 条字幕，每批次翻译 {batch_size} 条...")
     
-    total_batches = (len(segments) + batch_size - 1) // batch_size
+    total_batches = (len(remaining_segments) + batch_size - 1) // batch_size
     with tqdm(total=total_batches, desc="翻译进度", unit="批次") as pbar:
-        for i in range(0, len(segments), batch_size):
-            batch = segments[i:i+batch_size]
+        for i in range(0, len(remaining_segments), batch_size):
+            batch = remaining_segments[i:i+batch_size]
             texts_to_translate = [item["text"] for item in batch]
             
             translated_texts = translate_batch_ollama(texts_to_translate)
@@ -151,6 +175,10 @@ def translate_all_segments(segments, batch_size=10):
                 new_item = item.copy()
                 new_item["zh_text"] = translated_texts[j]
                 translated_segments.append(new_item)
+                
+            # 每翻译完一个批次就保存一次，确保进度不丢失
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(translated_segments, f, ensure_ascii=False, indent=2)
                 
             pbar.update(1)
             
@@ -191,31 +219,47 @@ def main():
     video_file = args.video
     audio_file = args.audio
     srt_file = args.output
+    
+    # 派生缓存文件名
+    base_name = os.path.splitext(video_file)[0]
+    transcription_cache = f"{base_name}.transcription.json"
+    translation_cache = f"{base_name}.translation.json"
 
     if not os.path.exists(video_file):
         print(f"[-] 找不到视频文件: {video_file}")
         return
 
+    success = False
     try:
-        # 1. 提取音频
+        # 1. 提取音频 (带保留机制)
         extract_audio(video_file, audio_file)
         
-        # 2. 语音识别
-        segments = transcribe_audio(audio_file)
+        # 2. 语音识别 (带缓存)
+        segments = transcribe_audio(audio_file, transcription_cache)
         
-        # 3. 本地大语言模型翻译
-        segments = translate_all_segments(segments, batch_size=10)
+        # 3. 本地大语言模型翻译 (带断点续传)
+        segments = translate_all_segments(segments, translation_cache, batch_size=10)
         
         # 4. 写入 SRT
         generate_srt(segments, srt_file)
         
+        success = True
         print("\n[✔] 整个工作流执行成功！")
 
+    except KeyboardInterrupt:
+        print("\n[!] 用户手动中止了程序。")
+    except Exception as e:
+        print(f"\n[-] 发生错误: {e}")
     finally:
         # 清理临时文件
-        if os.path.exists(audio_file):
-            os.remove(audio_file)
-            print("[*] 已清理临时音频文件。")
+        if success:
+            print("[*] 正在清理临时文件和进度缓存...")
+            for temp_file in [audio_file, transcription_cache, translation_cache]:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                    print(f"    - 已清理: {temp_file}")
+        else:
+            print("\n[!] 提示: 由于执行未完全结束，临时音频和进度缓存已被保留。下次重新运行将自动恢复进度。")
 
 if __name__ == "__main__":
     main()
