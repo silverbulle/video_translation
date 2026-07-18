@@ -156,7 +156,7 @@ def translate_batch_ollama(texts):
         return ["[翻译失败]"] * len(texts)
 
 def translate_all_segments(segments, cache_file, batch_size=10):
-    """3. 批量循环翻译所有片段 (带断点续传)"""
+    """3. 批量循环翻译所有片段 (带断点续传与句子级去重)"""
     print("\n" + "="*50)
     print("=== 阶段 2/2: 大模型本地翻译 (Translation) ===")
     print("="*50)
@@ -171,22 +171,40 @@ def translate_all_segments(segments, cache_file, batch_size=10):
         print("[*] 所有片段均已翻译完毕！")
         return translated_segments
         
-    print(f"[*] 准备翻译，剩余 {len(remaining_segments)} 条字幕，每批次翻译 {batch_size} 条...")
+    print(f"[*] 准备翻译，剩余 {len(remaining_segments)} 条字幕，每批次提取 {batch_size} 条...")
+    
+    # 构建历史翻译字典（用于去重重复句子）
+    sentence_cache = {}
+    for seg in translated_segments:
+        if "text" in seg and "zh_text" in seg:
+            sentence_cache[seg["text"]] = seg["zh_text"]
     
     total_batches = (len(remaining_segments) + batch_size - 1) // batch_size
     with tqdm(total=total_batches, desc="翻译进度", unit="批次") as pbar:
         for i in range(0, len(remaining_segments), batch_size):
             batch = remaining_segments[i:i+batch_size]
-            texts_to_translate = [item["text"] for item in batch]
             
-            translated_texts = translate_batch_ollama(texts_to_translate)
+            # 过滤出没翻译过的且不重复的句子
+            texts_to_translate = []
+            for item in batch:
+                txt = item["text"]
+                if txt not in sentence_cache and txt not in texts_to_translate:
+                    texts_to_translate.append(txt)
             
-            for j, item in enumerate(batch):
+            # 调用大模型翻译未知句子
+            if texts_to_translate:
+                translated_texts = translate_batch_ollama(texts_to_translate)
+                # 将新翻译结果存入字典
+                for orig, trans in zip(texts_to_translate, translated_texts):
+                    sentence_cache[orig] = trans
+            
+            # 组装完整的翻译后片段
+            for item in batch:
                 new_item = item.copy()
-                new_item["zh_text"] = translated_texts[j]
+                new_item["zh_text"] = sentence_cache.get(item["text"], item["text"]) # 若翻译失败退回原文
                 translated_segments.append(new_item)
                 
-            # 每翻译完一个批次就保存一次，确保进度不丢失
+            # 每处理完一个批次就保存一次，确保进度不丢失
             with open(cache_file, "w", encoding="utf-8") as f:
                 json.dump(translated_segments, f, ensure_ascii=False, indent=2)
                 
