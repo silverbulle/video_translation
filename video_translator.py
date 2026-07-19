@@ -70,7 +70,9 @@ def transcribe_audio(audio_path, cache_file):
             vad_filter=True, 
             vad_parameters=dict(min_silence_duration_ms=500),
             word_timestamps=True,
-            condition_on_previous_text=False
+            condition_on_previous_text=False,
+            no_speech_threshold=0.9,
+            initial_prompt="以下是一段普通的日语对话。"
         )
     except RuntimeError as e:
         if "cublas" in str(e).lower() or "cudnn" in str(e).lower() or "cudart" in str(e).lower():
@@ -84,7 +86,9 @@ def transcribe_audio(audio_path, cache_file):
                 vad_filter=True, 
                 vad_parameters=dict(min_silence_duration_ms=500),
                 word_timestamps=True,
-                condition_on_previous_text=False
+                condition_on_previous_text=False,
+                no_speech_threshold=0.9,
+                initial_prompt="以下是一段普通的日语对话。"
             )
         else:
             raise e
