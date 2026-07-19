@@ -5,7 +5,7 @@ import requests
 import site
 from tqdm import tqdm
 from faster_whisper import WhisperModel
-from moviepy import VideoFileClip
+
 
 # ==========================================
 # 配置区域
@@ -33,23 +33,10 @@ if os.name == 'nt':
     except Exception:
         pass
 
-def extract_audio(video_path, audio_path):
-    """1. 从视频中提取音频"""
-    if os.path.exists(audio_path):
-        print(f"[*] 检测到已存在的音频文件 {audio_path}，跳过提取。")
-        return
-        
-    print(f"[*] 正在从 {video_path} 提取音频...")
-    try:
-        video = VideoFileClip(video_path)
-        video.audio.write_audiofile(audio_path, logger=None)
-        print("[+] 音频提取成功！")
-    except Exception as e:
-        print(f"[-] 提取音频失败: {e}")
-        raise e
 
-def transcribe_audio(audio_path, cache_file):
-    """2. 使用 faster-whisper 进行语音识别提取带有时间戳的文本"""
+
+def transcribe_audio(video_path, cache_file):
+    """1 & 2. 使用 faster-whisper 直接读取视频进行语音识别并提取带有时间戳的文本"""
     print("\n" + "="*50)
     print("=== 阶段 1/2: 语音识别提取 (Transcription) ===")
     print("="*50)
@@ -65,7 +52,7 @@ def transcribe_audio(audio_path, cache_file):
         model = WhisperModel(WHISPER_MODEL_SIZE, device="auto", compute_type="default")
         print("[*] 正在识别音频...")
         segments, info = model.transcribe(
-            audio_path, 
+            video_path, 
             beam_size=5, 
             vad_filter=True, 
             vad_parameters=dict(min_silence_duration_ms=500),
@@ -81,7 +68,7 @@ def transcribe_audio(audio_path, cache_file):
             model = WhisperModel(WHISPER_MODEL_SIZE, device="cpu", compute_type="int8")
             print("[*] 正在识别音频...")
             segments, info = model.transcribe(
-                audio_path, 
+                video_path, 
                 beam_size=5, 
                 vad_filter=True, 
                 vad_parameters=dict(min_silence_duration_ms=500),
@@ -280,7 +267,6 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="本地视频语音翻译程序 (基于 Faster-Whisper 和 Ollama)")
     parser.add_argument("video", help="输入的视频文件路径 (如: video.mp4)")
-    parser.add_argument("--audio", default=None, help="中间音频文件存储路径 (默认存放在视频同级目录)")
     parser.add_argument("--output", default=None, help="输出的 srt 字幕路径 (默认与视频同名并存放在视频同级目录)")
     args = parser.parse_args()
 
@@ -288,7 +274,6 @@ def main():
     
     # 派生同名文件路径
     base_name = os.path.splitext(video_file)[0]
-    audio_file = args.audio if args.audio else f"{base_name}.wav"
     srt_file = args.output if args.output else f"{base_name}.srt"
     
     # 派生缓存文件名 (放在视频同目录下)
@@ -301,11 +286,11 @@ def main():
 
     success = False
     try:
-        # 1. 提取音频 (带保留机制)
-        extract_audio(video_file, audio_file)
+        # 注意：此处我们直接将视频文件传递给 faster-whisper，因为它内置了强健的 PyAV (FFmpeg) 解码器
+        # 可以避免 moviepy 提取长音频时可能出现的提前截断或管道破裂等严重 Bug。
         
-        # 2. 语音识别 (带缓存)
-        segments = transcribe_audio(audio_file, transcription_cache)
+        # 1 & 2. 语音识别 (带缓存)
+        segments = transcribe_audio(video_file, transcription_cache)
         
         # 3. 本地大语言模型翻译 (带断点续传)
         segments = translate_all_segments(segments, translation_cache, batch_size=10)
@@ -323,17 +308,12 @@ def main():
     finally:
         # 清理临时文件
         if success:
-            print("\n[*] 正在清理临时音频文件...")
-            if os.path.exists(audio_file):
-                os.remove(audio_file)
-                print(f"    - 已清理: {audio_file}")
-                
             print("\n[💡] 提示: 中间状态文件已被默认保留，以备将来更换大模型重新翻译或更改字幕格式时瞬间恢复进度：")
             print(f"    - 语音识别缓存: {transcription_cache}")
             print(f"    - 翻译结果缓存: {translation_cache}")
             print("    (如果您确认不再需要，可自行手动删除以释放少量磁盘空间)")
         else:
-            print("\n[!] 提示: 由于执行未完全结束，临时音频和进度缓存已被保留。下次重新运行将自动恢复进度。")
+            print("\n[!] 提示: 由于执行未完全结束，进度缓存已被保留。下次重新运行将自动恢复进度。")
 
 if __name__ == "__main__":
     main()
