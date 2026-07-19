@@ -132,23 +132,44 @@ def translate_batch_ollama(texts):
         result_text = response.json()["message"]["content"]
         
         # 解析返回的文本，提取翻译结果
-        translated_lines = []
+        translated_dict = {}
+        fallback_lines = []
+        
         for line in result_text.split('\n'):
             line = line.strip()
-            if line:
-                # 使用正则匹配 "1. xxxxx" 或者 "1、xxxxx"
-                match = re.match(r'^\d+[\.、]\s*(.*)$', line)
-                if match:
-                    translated_lines.append(match.group(1).strip())
-                else:
-                    # 如果模型没有严格按照序号返回，我们尽量保留整行
-                    translated_lines.append(line)
+            if not line:
+                continue
+                
+            # 过滤掉常见的大模型开头废话
+            if line.startswith("好的") or line.startswith("以下是") or line.startswith("没问题") or line.startswith("翻译"):
+                if not re.match(r'^\d+[\.、]', line):
+                    continue
+
+            # 使用正则匹配 "1. xxxxx" 或者 "1、xxxxx"
+            match = re.match(r'^(\d+)[\.、]\s*(.*)$', line)
+            if match:
+                idx = int(match.group(1)) - 1
+                translated_dict[idx] = match.group(2).strip()
+            else:
+                fallback_lines.append(line)
         
-        # 如果解析的数量和原文数量不一致，做简单容错补齐
-        while len(translated_lines) < len(texts):
-            translated_lines.append("[翻译缺失]")
+        translated_lines = []
+        # 容错：如果模型完全没有使用序号返回，但返回了文本，我们尝试按顺序匹配
+        if not translated_dict and len(fallback_lines) > 0:
+            for i in range(len(texts)):
+                if i < len(fallback_lines):
+                    translated_lines.append(fallback_lines[i])
+                else:
+                    translated_lines.append(texts[i])
+        else:
+            # 严格按照序号组装，如果某个序号缺失，保留原文防止错位
+            for i in range(len(texts)):
+                if i in translated_dict:
+                    translated_lines.append(translated_dict[i])
+                else:
+                    translated_lines.append(texts[i])
             
-        return translated_lines[:len(texts)] # 保证长度一致
+        return translated_lines
 
     except Exception as e:
         print(f"[-] 请求本地大模型失败: {e}")
