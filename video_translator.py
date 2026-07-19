@@ -64,14 +64,14 @@ def transcribe_audio(audio_path, cache_file):
         # 尝试使用自动检测（优先GPU）
         model = WhisperModel(WHISPER_MODEL_SIZE, device="auto", compute_type="default")
         print("[*] 正在识别音频...")
-        segments, info = model.transcribe(audio_path, beam_size=5)
+        segments, info = model.transcribe(audio_path, beam_size=5, vad_filter=True)
     except RuntimeError as e:
         if "cublas" in str(e).lower() or "cudnn" in str(e).lower() or "cudart" in str(e).lower():
             print("\n[!] 警告: 未检测到完整的 CUDA 驱动依赖 (缺失 cublas/cudnn dll)。")
             print("[!] 正在自动切换到 CPU 模式进行识别 (速度会变慢)...")
             model = WhisperModel(WHISPER_MODEL_SIZE, device="cpu", compute_type="int8")
             print("[*] 正在识别音频...")
-            segments, info = model.transcribe(audio_path, beam_size=5)
+            segments, info = model.transcribe(audio_path, beam_size=5, vad_filter=True)
         else:
             raise e
             
